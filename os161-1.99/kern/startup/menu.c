@@ -396,6 +396,18 @@ cmd_kheapstats(int nargs, char **args)
 	return 0;
 }
 
+/*
+ * Commond for enable the output of DB-THREADS debugging messages- "dth"
+ */
+static int cmd_dbthread(int nargs, char **args)
+{
+	(void)nargs;
+    (void)args;
+	dbflags = DB_THREADS;
+	return 0;
+}
+
+
 ////////////////////////////////////////
 //
 // Menus.
@@ -437,6 +449,7 @@ static const char *opsmenu[] = {
 	"[sync]    Sync filesystems          ",
 	"[panic]   Intentional panic         ",
 	"[q]       Quit and shut down        ",
+	"[dth]	   Enable debugging messages ",
 	NULL
 };
 
@@ -549,6 +562,7 @@ static struct {
 	{ "q",		cmd_quit },
 	{ "exit",	cmd_quit },
 	{ "halt",	cmd_quit },
+	{ "dth",	cmd_dbthread},
 
 #if OPT_SYNCHPROBS
 	/* in-kernel synchronization problem(s) */
@@ -711,3 +725,4 @@ menu(char *args)
 		menu_execute(buf, 0);
 	}
 }
+

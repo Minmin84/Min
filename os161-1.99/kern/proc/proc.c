@@ -50,6 +50,7 @@
 #include <vfs.h>
 #include <synch.h>
 #include <kern/fcntl.h>  
+#include "opt-A2.h"
 
 /*
  * The process for the kernel; this holds all the kernel-only threads.
@@ -68,6 +69,30 @@ static struct semaphore *proc_count_mutex;
 /* used to signal the kernel menu thread when there are no processes */
 struct semaphore *no_proc_sem;   
 #endif  // UW
+
+
+
+
+
+
+
+#if OPT_A2
+// use to create curpid
+static volatile int curpid;
+//in case access curpid together
+static struct lock *curpid_lock;
+//use global lock to avoid lock error
+//this is for cv
+struct lock *wait_lock;
+#endif
+
+
+
+
+
+
+
+
 
 
 
@@ -99,12 +124,53 @@ proc_create(const char *name)
 	/* VFS fields */
 	proc->p_cwd = NULL;
 
+	#if OPT_A2
+	/*
+    	lock_acquire(curpid_lock);
+		if (curpid <= 0) {
+			panic("invalid curpid\n");
+		}
+    	proc->pid = curpid;
+		// Generate curpid for new process
+    	curpid += 1;
+    	lock_release(curpid_lock);
+		*/
+		proc->parent = NULL;
+		proc->children = array_create();
+		proc->children_lock = lock_create("children_lock");
+	/*	if (proc->children_lock == NULL) {
+			panic("Failed to create proc->children_lock \n");
+		}
+	*/	
+		proc->live = cv_create("live");
+	/*	if (proc->live == NULL) {
+			panic("Failed to create proc->live \n");
+		}
+	*/	
+		proc->live_lock = lock_create("live_lock");
+	/*	if (proc->live_lock == NULL) {
+			panic("Failed to create proc->live_lock \n");
+		}
+	*/	
+		proc->exitcode = 0;
+		proc->exit = false;
+	#endif
+
 #ifdef UW
 	proc->console = NULL;
 #endif // UW
 
 	return proc;
 }
+
+
+
+
+
+
+
+
+
 
 /*
  * Destroy a proc structure.
@@ -163,6 +229,29 @@ proc_destroy(struct proc *proc)
 	}
 #endif // UW
 
+	
+
+	#if OPT_A2
+	
+	proc->parent = NULL;
+	//lock_acquire(proc->children_lock);
+    for (int i = (array_num(proc->children) - 1); i >= 0; --i) {
+      struct one_child *oc = (struct one_child *)array_get(proc->children, i);
+      oc->cproc->parent = NULL;
+      kfree(oc);
+      array_remove(proc->children, i);
+    }
+	array_destroy(proc->children); 
+	//lock_release(proc->children_lock); //release before destroy
+
+	lock_destroy(proc->children_lock);
+	cv_destroy(proc->live);
+	lock_destroy(proc->live_lock);
+	
+
+	//kfree(proc->p_name);
+	//kfree(proc);
+	#endif
 	threadarray_cleanup(&proc->p_threads);
 	spinlock_cleanup(&proc->p_lock);
 
@@ -183,9 +272,24 @@ proc_destroy(struct proc *proc)
 	}
 	V(proc_count_mutex);
 #endif // UW
+
 	
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /*
  * Create the process structure for the kernel.
@@ -193,6 +297,7 @@ proc_destroy(struct proc *proc)
 void
 proc_bootstrap(void)
 {
+
   kproc = proc_create("[kernel]");
   if (kproc == NULL) {
     panic("proc_create for kproc failed\n");
@@ -208,7 +313,30 @@ proc_bootstrap(void)
     panic("could not create no_proc_sem semaphore\n");
   }
 #endif // UW 
+
+#if OPT_A2
+curpid_lock = lock_create("curpid_lock");
+if (curpid_lock == NULL) {
+	panic("Failed to create curpid_create \n");
 }
+wait_lock = lock_create("wait_lock");
+if (wait_lock == NULL) {
+	panic("Failed to create wait_create \n");
+}
+curpid = 2;
+#endif
+
+}
+
+
+
+
+
+
+
+
+
+
 
 /*
  * Create a fresh proc for use by runprogram.
@@ -226,6 +354,18 @@ proc_create_runprogram(const char *name)
 	if (proc == NULL) {
 		return NULL;
 	}
+
+
+	#if OPT_A2
+    lock_acquire(curpid_lock);
+	if (curpid < 1) {
+		panic("invalid curpid\n");
+	}
+    proc->pid = curpid;
+	// Generate curpid for new process
+    curpid += 1;
+    lock_release(curpid_lock);
+	#endif
 
 #ifdef UW
 	/* open the console - this should always succeed */
@@ -271,8 +411,20 @@ proc_create_runprogram(const char *name)
 	V(proc_count_mutex);
 #endif // UW
 
+
+
 	return proc;
 }
+
+
+
+
+
+
+
+
+
+
 
 /*
  * Add a thread to a process. Either the thread or the process might
@@ -294,6 +446,18 @@ proc_addthread(struct proc *proc, struct thread *t)
 	t->t_proc = proc;
 	return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 /*
  * Remove a thread from its process. Either the thread or the process
@@ -324,6 +488,18 @@ proc_remthread(struct thread *t)
 	panic("Thread (%p) has escaped from its process (%p)\n", t, proc);
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
 /*
  * Fetch the address space of the current process. Caution: it isn't
  * refcounted. If you implement multithreaded processes, make sure to
@@ -348,6 +524,17 @@ curproc_getas(void)
 	return as;
 }
 
+
+
+
+
+
+
+
+
+
+
+
 /*
  * Change the address space of the current process, and return the old
  * one.
@@ -364,3 +551,48 @@ curproc_setas(struct addrspace *newas)
 	spinlock_release(&proc->p_lock);
 	return oldas;
 }
+
+
+
+#if OPT_A2
+// This is to add child into the children array of parent process
+void proc_addChild(struct proc *pproc, struct proc *cproc) {
+    KASSERT(pproc != NULL);
+	KASSERT(cproc != NULL);
+//	lock_acquire(cproc->children_lock);
+	cproc->parent = pproc;
+//	lock_release(cproc->children_lock);
+
+	//lock_acquire(pproc->children_lock);
+	struct one_child *c = kmalloc(sizeof(struct one_child));
+	c->cproc = cproc;
+	c->pid = cproc->pid;
+    array_add(pproc->children, c, NULL);
+	//lock_release(pproc->children_lock);
+}
+
+
+
+
+
+
+// To examine whether waitpid is calling from parent to child
+// and return the finding
+struct proc * proc_inChildren(pid_t cpid, struct proc *pproc) {
+	KASSERT(cpid > 0);
+	struct proc * cproc = NULL;
+	if (pproc != NULL){
+	//lock_acquire(pproc->children_lock);
+    for (unsigned i = 0; i < array_num(pproc->children); i++) {
+		struct one_child *oc = array_get(pproc->children, i);
+		if (cpid == oc->pid) {
+			cproc = oc->cproc; //is in the children array
+			break;
+		}
+    }
+	//lock_release(pproc->children_lock);
+	}
+    return cproc;
+}
+
+#endif

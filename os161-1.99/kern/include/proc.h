@@ -38,6 +38,7 @@
 
 #include <spinlock.h>
 #include <thread.h> /* required for struct threadarray */
+#include "opt-A2.h"
 
 struct addrspace;
 struct vnode;
@@ -59,6 +60,8 @@ struct proc {
 	/* VFS */
 	struct vnode *p_cwd;		/* current working directory */
 
+	
+
 #ifdef UW
   /* a vnode to refer to the console device */
   /* this is a quick-and-dirty way to get console writes working */
@@ -69,7 +72,35 @@ struct proc {
 #endif
 
 	/* add more material here as needed */
+
+	#if OPT_A2
+	pid_t pid;
+	struct proc *parent;
+
+	struct array *children;
+	struct lock *children_lock;
+
+	struct cv *live;
+	struct lock *live_lock;
+
+	volatile int exitcode;
+	volatile bool exit;
+
+
+	#endif /* OPT_A2 */
 };
+
+
+#if OPT_A2
+// This is the children structure to store info
+struct one_child {
+	pid_t pid;
+	struct proc *cproc;
+};
+
+struct lock *wait_lock;
+#endif
+
 
 /* This is the process structure for the kernel and for kernel-only threads. */
 extern struct proc *kproc;
@@ -100,5 +131,13 @@ struct addrspace *curproc_getas(void);
 /* Change the address space of the current process, and return the old one. */
 struct addrspace *curproc_setas(struct addrspace *);
 
+#if OPT_A2
+// Add the child relationship to parent
+void proc_addChild(struct proc *pproc, struct proc *cproc);
 
+// To examine whether waitpid is calling from parent to child
+struct proc * proc_inChildren(pid_t cpid, struct proc *pproc);
+
+#endif
 #endif /* _PROC_H_ */
+

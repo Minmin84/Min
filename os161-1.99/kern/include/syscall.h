@@ -27,6 +27,7 @@
  * SUCH DAMAGE.
  */
 
+#include "opt-A2.h"
 #ifndef _SYSCALL_H_
 #define _SYSCALL_H_
 
@@ -43,8 +44,17 @@ void syscall(struct trapframe *tf);
  * Support functions.
  */
 
+#if OPT_A2
+int sys_fork(struct trapframe *tf, pid_t *retval);
+#endif
+
 /* Helper for fork(). You write this. */
+#if OPT_A2
+void enter_forked_process(void *d1 , unsigned long d2);
+int set_trapframe(struct trapframe *tf, struct trapframe* ctf);
+#else
 void enter_forked_process(struct trapframe *tf);
+#endif
 
 /* Enter user mode. Does not return. */
 void enter_new_process(int argc, userptr_t argv, vaddr_t stackptr,
@@ -67,3 +77,4 @@ int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval);
 #endif // UW
 
 #endif /* _SYSCALL_H_ */
+

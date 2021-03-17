@@ -35,6 +35,7 @@
 #include <thread.h>
 #include <current.h>
 #include <syscall.h>
+#include "opt-A2.h"
 
 
 /*
@@ -129,9 +130,13 @@ syscall(struct trapframe *tf)
 			    (int)tf->tf_a2,
 			    (pid_t *)&retval);
 	  break;
+	  
+	case SYS_fork:
+            err = sys_fork(tf, (pid_t *)&retval);
+            break;
 #endif // UW
 
-	    /* Add stuff here */
+
  
 	default:
 	  kprintf("Unknown syscall %d\n", callno);
@@ -168,6 +173,9 @@ syscall(struct trapframe *tf)
 	KASSERT(curthread->t_iplhigh_count == 0);
 }
 
+
+
+
 /*
  * Enter user mode for a newly forked process.
  *
@@ -177,7 +185,27 @@ syscall(struct trapframe *tf)
  * Thus, you can trash it and do things another way if you prefer.
  */
 void
-enter_forked_process(struct trapframe *tf)
+enter_forked_process(void *d1 , unsigned long d2)
 {
-	(void)tf;
+	#if OPT_A2
+	struct trapframe tf = (*(struct trapframe*) (d1));
+	kfree(d1);
+	tf.tf_v0 = 0; //return the code for child
+	tf.tf_a3 = 0; //no error
+	tf.tf_epc += 4; // increment pc
+	mips_usermode(&tf); // return to usermode
+	(void) d2;
+	#else
+	(void)d1;
+	#endif
 }
+
+
+#if OPT_A2
+int set_trapframe(struct trapframe *tf, struct trapframe* ctf) {
+    KASSERT(tf != NULL);
+	KASSERT(ctf != NULL);
+    memcpy(ctf, tf, sizeof(struct trapframe));
+    return 0;
+}
+#endif
